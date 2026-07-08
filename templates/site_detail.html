@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}{{ site.name }} - WebTrack{% endblock %}
+{% block content %}
+  <a href="/" style="color: var(--muted); font-size: 13px; text-decoration: none;">&larr; All sites</a>
+  <h1 style="margin-top: 10px;">{{ site.name }}</h1>
+  <p style="color: var(--muted); font-size: 14px; margin-top: 0;">{{ site.domain }}</p>
+
+  <div class="range-tabs" style="margin: 16px 0;">
+    <a href="?range=today" class="{{ 'active' if range_key == 'today' }}">Today</a>
+    <a href="?range=7d" class="{{ 'active' if range_key == '7d' }}">7 days</a>
+    <a href="?range=30d" class="{{ 'active' if range_key == '30d' }}">30 days</a>
+    <a href="?range=all" class="{{ 'active' if range_key == 'all' }}">All time</a>
+  </div>
+
+  <div class="grid">
+    <div class="stat"><div class="num">{{ stats.total_pageviews }}</div><div class="label">Pageviews</div></div>
+    <div class="stat"><div class="num">{{ stats.unique_visitors }}</div><div class="label">Unique visitors</div></div>
+    <div class="stat"><div class="num">{{ stats.total_events }}</div><div class="label">Custom events</div></div>
+  </div>
+
+  <div class="card" style="margin-top: 18px;">
+    <h2>Pageviews over time</h2>
+    <canvas id="chart" height="80"></canvas>
+  </div>
+
+  <div class="two-col">
+    <div class="card">
+      <h2>Top pages</h2>
+      <table>
+        <tr><th>Path</th><th>Views</th></tr>
+        {% for row in stats.top_pages %}
+        <tr><td>{{ row.path }}</td><td>{{ row.c }}</td></tr>
+        {% else %}<tr><td colspan="2" style="color: var(--muted);">No data yet</td></tr>{% endfor %}
+      </table>
+    </div>
+    <div class="card">
+      <h2>Top referrers</h2>
+      <table>
+        <tr><th>Source</th><th>Views</th></tr>
+        {% for row in stats.top_referrers %}
+        <tr><td>{{ row.referrer }}</td><td>{{ row.c }}</td></tr>
+        {% else %}<tr><td colspan="2" style="color: var(--muted);">No data yet</td></tr>{% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="card">
+      <h2>Devices</h2>
+      <table>
+        <tr><th>Device</th><th>Views</th></tr>
+        {% for row in stats.devices %}
+        <tr><td>{{ row.device }}</td><td>{{ row.c }}</td></tr>
+        {% else %}<tr><td colspan="2" style="color: var(--muted);">No data yet</td></tr>{% endfor %}
+      </table>
+    </div>
+    <div class="card">
+      <h2>Browser / OS</h2>
+      <table>
+        <tr><th>Browser</th><th>Views</th></tr>
+        {% for row in stats.browsers %}
+        <tr><td>{{ row.browser }}</td><td>{{ row.c }}</td></tr>
+        {% endfor %}
+        <tr><th>OS</th><th>Views</th></tr>
+        {% for row in stats.os_list %}
+        <tr><td>{{ row.os }}</td><td>{{ row.c }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="card">
+      <h2>Countries</h2>
+      <table>
+        <tr><th>Country</th><th>Views</th></tr>
+        {% for row in stats.countries %}
+        <tr><td>{{ row.country }}</td><td>{{ row.c }}</td></tr>
+        {% else %}<tr><td colspan="2" style="color: var(--muted);">No data yet</td></tr>{% endfor %}
+      </table>
+    </div>
+    <div class="card">
+      <h2>Recent custom events</h2>
+      <table>
+        <tr><th>Event</th><th>Page</th><th>When</th></tr>
+        {% for e in stats.recent_events %}
+        <tr><td>{{ e.event_name }}</td><td>{{ e.path }}</td><td>{{ e.created_at[:19] }}</td></tr>
+        {% else %}<tr><td colspan="3" style="color: var(--muted);">No custom events yet</td></tr>{% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Install snippet</h2>
+    <p style="color: var(--muted); font-size: 13px;">Paste this before <code>&lt;/body&gt;</code> on every page of {{ site.domain or "your site" }}.</p>
+    <div class="snippet">&lt;script defer src="{{ request.url_root.rstrip('/') }}/t.js" data-site="{{ site.site_key }}"&gt;&lt;/script&gt;</div>
+    <p style="color: var(--muted); font-size: 13px; margin-top: 14px;">To track a custom event (e.g. a button click) from your page's JS:</p>
+    <div class="snippet">webtrack('event', 'signup_click', {"{{ '{' }} plan: 'pro' {{ '}' }}"});</div>
+  </div>
+
+  <form method="post" action="/sites/{{ site.site_key }}/delete" onsubmit="return confirm('Delete this site and all its data?');">
+    <button class="btn danger" type="submit">Delete this site</button>
+  </form>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script>
+    const labels = {{ stats.timeseries | map(attribute='day') | list | tojson }};
+    const values = {{ stats.timeseries | map(attribute='c') | list | tojson }};
+    new Chart(document.getElementById('chart'), {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Pageviews',
+          data: values,
+          borderColor: '#4f8cff',
+          backgroundColor: 'rgba(79,140,255,0.15)',
+          tension: 0.3,
+          fill: true,
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#8b93a3' }, grid: { color: '#262b36' } },
+          y: { ticks: { color: '#8b93a3' }, grid: { color: '#262b36' }, beginAtZero: true }
+        }
+      }
+    });
+  </script>
+{% endblock %}

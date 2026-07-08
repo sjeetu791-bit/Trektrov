@@ -1,0 +1,75 @@
+(function () {
+  var scriptEl = document.currentScript;
+  var siteKey = scriptEl && scriptEl.getAttribute('data-site');
+  if (!siteKey) { return; }
+
+  var COLLECT_URL = '{{ collect_url }}';
+
+  function getSessionId() {
+    try {
+      var existing = sessionStorage.getItem('__wt_sid');
+      if (existing) return existing;
+      var sid = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      sessionStorage.setItem('__wt_sid', sid);
+      return sid;
+    } catch (e) {
+      return 'no-storage';
+    }
+  }
+
+  function send(payload) {
+    payload.site_key = siteKey;
+    payload.session_id = getSessionId();
+    try {
+      fetch(COLLECT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true,
+        mode: 'cors',
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  function trackPageview() {
+    send({
+      type: 'pageview',
+      url: location.href,
+      path: location.pathname,
+      referrer: document.referrer || '',
+    });
+  }
+
+  function trackEvent(name, data) {
+    send({
+      type: 'event',
+      url: location.href,
+      path: location.pathname,
+      event_name: name,
+      event_data: data || {},
+    });
+  }
+
+  // expose global for custom events, e.g. webtrack('event', 'signup_click', {plan: 'pro'})
+  window.webtrack = function (kind, name, data) {
+    if (kind === 'event') trackEvent(name, data);
+  };
+
+  // auto-track clicks on elements marked with data-wt-event="name"
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest && e.target.closest('[data-wt-event]');
+    if (el) {
+      trackEvent(el.getAttribute('data-wt-event'), { text: el.textContent.trim().slice(0, 80) });
+    }
+  });
+
+  // track SPA route changes
+  var origPushState = history.pushState;
+  history.pushState = function () {
+    origPushState.apply(this, arguments);
+    trackPageview();
+  };
+  window.addEventListener('popstate', trackPageview);
+
+  trackPageview();
+})();

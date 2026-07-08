@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login - WebTrack</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-box">
+      <h1>WebTrack</h1>
+      <p style="color: var(--muted); font-size: 14px;">Enter password to view your analytics.</p>
+      <form method="post" style="margin-top: 16px;">
+        <input type="password" name="password" placeholder="Password" style="width: 100%;" autofocus>
+        <button class="btn" style="width: 100%; margin-top: 10px;" type="submit">Sign in</button>
+      </form>
+      {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Sites - WebTrack{% endblock %}
+{% block content %}
+  <h1>Your websites</h1>
+  <p style="color: var(--muted); font-size: 14px; margin-top: 0;">All the sites you're tracking, in one place.</p>
+
+  <div class="site-list">
+    {% for site in sites %}
+      <a href="/site/{{ site.site_key }}">
+        <div>
+          <strong>{{ site.name }}</strong>
+          <div style="color: var(--muted); font-size: 13px;">{{ site.domain or "no domain set" }}</div>
+        </div>
+        <span class="tag">{{ site.site_key }}</span>
+      </a>
+    {% else %}
+      <p style="color: var(--muted);">No websites added yet. Add your first one below.</p>
+    {% endfor %}
+  </div>
+
+  <div class="card" style="margin-top: 24px;">
+    <h2>Add a website</h2>
+    <form method="post" action="/sites/new" class="inline">
+      <input type="text" name="name" placeholder="Site name (e.g. My Blog)" required>
+      <input type="text" name="domain" placeholder="Domain (e.g. example.com)">
+      <button class="btn" type="submit">Add</button>
+    </form>
+  </div>
+{% endblock %}
