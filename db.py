@@ -3,7 +3,9 @@ import os
 import secrets
 from datetime import datetime, timedelta
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webtrack.db")
+DB_PATH = os.environ.get(
+    "DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "webtrack.db")
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sites (
