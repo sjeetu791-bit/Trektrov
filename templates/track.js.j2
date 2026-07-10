@@ -4,6 +4,9 @@
   if (!siteKey) { return; }
 
   var COLLECT_URL = '{{ collect_url }}';
+  var pageviewId = null;
+  var pageStart = null;
+  var durationSent = false;
 
   function getSessionId() {
     try {
@@ -17,14 +20,26 @@
     }
   }
 
-  function send(payload) {
+  function genId() {
+    return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  }
+
+  function send(payload, useBeacon) {
     payload.site_key = siteKey;
     payload.session_id = getSessionId();
+    var body = JSON.stringify(payload);
+    if (useBeacon && navigator.sendBeacon) {
+      try {
+        // text/plain avoids a CORS preflight on unload; the server parses the raw body as JSON.
+        navigator.sendBeacon(COLLECT_URL, new Blob([body], { type: 'text/plain' }));
+        return;
+      } catch (e) {}
+    }
     try {
       fetch(COLLECT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: body,
         keepalive: true,
         mode: 'cors',
       }).catch(function () {});
@@ -32,11 +47,15 @@
   }
 
   function trackPageview() {
+    pageviewId = genId();
+    pageStart = Date.now();
+    durationSent = false;
     send({
       type: 'pageview',
       url: location.href,
       path: location.pathname,
       referrer: document.referrer || '',
+      pageview_id: pageviewId,
     });
   }
 
@@ -48,6 +67,16 @@
       event_name: name,
       event_data: data || {},
     });
+  }
+
+  function sendDuration() {
+    if (durationSent || !pageviewId || !pageStart) return;
+    durationSent = true;
+    send({
+      type: 'duration',
+      pageview_id: pageviewId,
+      duration_ms: Date.now() - pageStart,
+    }, true);
   }
 
   // expose global for custom events, e.g. webtrack('event', 'signup_click', {plan: 'pro'})
@@ -66,10 +95,21 @@
   // track SPA route changes
   var origPushState = history.pushState;
   history.pushState = function () {
+    sendDuration();
     origPushState.apply(this, arguments);
     trackPageview();
   };
-  window.addEventListener('popstate', trackPageview);
+  window.addEventListener('popstate', function () {
+    sendDuration();
+    trackPageview();
+  });
+
+  // fires when the tab is backgrounded/closed — the most reliable place to
+  // capture "how long were they actually on this page"
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') sendDuration();
+  });
+  window.addEventListener('pagehide', sendDuration);
 
   trackPageview();
 })();

@@ -17,6 +17,17 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme")
 
 db.init_db()
 
+# Trektrov Travels' pages already ship with this site_key hardcoded in their
+# tracking snippet. Re-seed it on every boot so a redeploy (which can reset
+# the sqlite file on hosts without a persistent disk) doesn't silently break
+# tracking by leaving the embedded key pointing at a site that no longer
+# exists.
+SEED_SITE_KEY = os.environ.get("SEED_SITE_KEY", "wt_065123481cdee496")
+SEED_SITE_NAME = os.environ.get("SEED_SITE_NAME", "Trektrov Travels")
+SEED_SITE_DOMAIN = os.environ.get("SEED_SITE_DOMAIN", "trektrovtravels.in")
+if SEED_SITE_KEY:
+    db.ensure_site(SEED_SITE_NAME, SEED_SITE_DOMAIN, SEED_SITE_KEY)
+
 
 # ---------------------------------------------------------------- auth ----
 
@@ -141,11 +152,30 @@ def collect():
     if request.method == "OPTIONS":
         return _cors(app.response_class(status=204))
 
-    payload = request.get_json(silent=True) or {}
+    # navigator.sendBeacon delivers the body as a text/plain Blob (to avoid a
+    # CORS preflight), so it won't be parsed by get_json() unless we fall back
+    # to reading the raw body ourselves.
+    payload = request.get_json(silent=True)
+    if payload is None:
+        try:
+            payload = json.loads(request.get_data(as_text=True) or "{}")
+        except ValueError:
+            payload = {}
+
     site_key = payload.get("site_key", "")
     site = db.get_site_by_key(site_key)
     if not site:
         return _cors(jsonify({"error": "unknown site_key"})), 404
+
+    event_type = payload.get("type", "pageview")
+
+    if event_type == "duration":
+        try:
+            duration_ms = int(payload.get("duration_ms") or 0)
+        except (TypeError, ValueError):
+            duration_ms = 0
+        db.update_pageview_duration(site["id"], payload.get("pageview_id", ""), duration_ms)
+        return _cors(jsonify({"ok": True}))
 
     ua_string = request.headers.get("User-Agent", "")
     ua = parse_ua(ua_string)
@@ -154,7 +184,6 @@ def collect():
 
     visitor_hash = hashlib.sha256(f"{site['id']}:{ip}:{ua_string}".encode()).hexdigest()[:32]
 
-    event_type = payload.get("type", "pageview")
     url_val = payload.get("url", "")
     path_val = payload.get("path", "")
 
@@ -171,6 +200,7 @@ def collect():
         city=city,
         visitor_hash=visitor_hash,
         session_id=payload.get("session_id", ""),
+        pageview_id=payload.get("pageview_id", ""),
         event_name=payload.get("event_name", ""),
         event_data=json.dumps(payload.get("event_data", {})),
         created_at=datetime.utcnow().isoformat(),

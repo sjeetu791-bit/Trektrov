@@ -1,6 +1,8 @@
+import json
 import sqlite3
 import os
 import secrets
+from collections import Counter
 from datetime import datetime, timedelta
 
 DB_PATH = os.environ.get(
@@ -55,10 +57,20 @@ def get_conn():
     return conn
 
 
+def _migrate(conn):
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(events)").fetchall()]
+    if "pageview_id" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN pageview_id TEXT")
+    if "duration_ms" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN duration_ms INTEGER")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_events_pageview_id ON events(site_id, pageview_id)")
+    conn.commit()
+
+
 def init_db():
     conn = get_conn()
     conn.executescript(SCHEMA)
-    conn.commit()
+    _migrate(conn)
     conn.close()
 
 
@@ -76,6 +88,19 @@ def create_site(name, domain):
     conn.commit()
     conn.close()
     return key
+
+
+def ensure_site(name, domain, site_key):
+    """Idempotently make sure a site with this exact key exists. Used to
+    re-seed the tracking site on every boot, since the host's filesystem
+    (and this sqlite file) may not persist across deploys."""
+    conn = get_conn()
+    conn.execute(
+        "INSERT OR IGNORE INTO sites (name, domain, site_key, created_at) VALUES (?, ?, ?, ?)",
+        (name, domain, site_key, datetime.utcnow().isoformat()),
+    )
+    conn.commit()
+    conn.close()
 
 
 def list_sites():
@@ -113,6 +138,19 @@ def insert_event(site_id, **fields):
     conn.close()
 
 
+def update_pageview_duration(site_id, pageview_id, duration_ms):
+    if not pageview_id:
+        return
+    conn = get_conn()
+    conn.execute(
+        "UPDATE events SET duration_ms = ? WHERE site_id = ? AND pageview_id = ? AND type = 'pageview' "
+        "AND (duration_ms IS NULL OR duration_ms < ?)",
+        (duration_ms, site_id, pageview_id, duration_ms),
+    )
+    conn.commit()
+    conn.close()
+
+
 def get_geo_cache(ip):
     conn = get_conn()
     row = conn.execute("SELECT * FROM geo_cache WHERE ip = ?", (ip,)).fetchone()
@@ -143,6 +181,52 @@ def _range_start(range_key):
     if range_key == "30d":
         return now - timedelta(days=30)
     return None  # all time
+
+
+def _fmt_ms(ms):
+    if not ms:
+        return "0s"
+    total_seconds = int(ms / 1000)
+    m, s = divmod(total_seconds, 60)
+    return f"{m}m {s}s" if m else f"{s}s"
+
+
+def _parse_event_data(rows):
+    parsed = []
+    for r in rows:
+        try:
+            parsed.append(json.loads(r["event_data"] or "{}"))
+        except ValueError:
+            continue
+    return parsed
+
+
+def _top_activities(rows, limit=10):
+    counter = Counter()
+    meta = {}
+    for d in _parse_event_data(rows):
+        key = d.get("id") or d.get("title")
+        if not key:
+            continue
+        counter[key] += 1
+        meta[key] = d
+    return [{"count": c, **meta[k]} for k, c in counter.most_common(limit)]
+
+
+def _tour_preferences(activity_rows, filter_rows, limit=10):
+    city_counter = Counter()
+    category_counter = Counter()
+    for d in _parse_event_data(activity_rows):
+        if d.get("city"):
+            city_counter[d["city"]] += 1
+        if d.get("category"):
+            category_counter[d["category"]] += 1
+    for d in _parse_event_data(filter_rows):
+        if d.get("city") and d["city"] != "all":
+            city_counter[d["city"]] += 1
+        for cat in d.get("categories") or []:
+            category_counter[cat] += 1
+    return city_counter.most_common(limit), category_counter.most_common(limit)
 
 
 def site_stats(site_id, range_key="7d"):
@@ -213,7 +297,38 @@ def site_stats(site_id, range_key="7d"):
         params,
     ).fetchall()
 
+    avg_durations = conn.execute(
+        f"SELECT path, COUNT(*) c, AVG(duration_ms) avg_ms FROM events "
+        f"WHERE {where} AND type='pageview' AND duration_ms IS NOT NULL "
+        f"GROUP BY path ORDER BY c DESC LIMIT 10",
+        params,
+    ).fetchall()
+
+    session_durations = conn.execute(
+        f"SELECT session_id, SUM(duration_ms) total_ms FROM events "
+        f"WHERE {where} AND type='pageview' AND duration_ms IS NOT NULL AND session_id != '' "
+        f"GROUP BY session_id",
+        params,
+    ).fetchall()
+
+    activity_view_rows = conn.execute(
+        f"SELECT event_data FROM events WHERE {where} AND type='event' AND event_name='activity_view'",
+        params,
+    ).fetchall()
+
+    filter_rows = conn.execute(
+        f"SELECT event_data FROM events WHERE {where} AND type='event' AND event_name='search_filter'",
+        params,
+    ).fetchall()
+
     conn.close()
+
+    avg_session_ms = (
+        sum(r["total_ms"] for r in session_durations) / len(session_durations)
+        if session_durations else 0
+    )
+    tour_city_pref, tour_category_pref = _tour_preferences(activity_view_rows, filter_rows)
+
     return {
         "total_pageviews": total_pageviews,
         "unique_visitors": unique_visitors,
@@ -226,4 +341,14 @@ def site_stats(site_id, range_key="7d"):
         "countries": countries,
         "recent_events": recent_events,
         "timeseries": timeseries,
+        "avg_durations": [
+            {"path": r["path"], "views": r["c"], "avg_ms": r["avg_ms"], "avg_fmt": _fmt_ms(r["avg_ms"])}
+            for r in avg_durations
+        ],
+        "avg_session_ms": avg_session_ms,
+        "avg_session_fmt": _fmt_ms(avg_session_ms),
+        "session_count": len(session_durations),
+        "top_activities": _top_activities(activity_view_rows),
+        "tour_city_pref": tour_city_pref,
+        "tour_category_pref": tour_category_pref,
     }

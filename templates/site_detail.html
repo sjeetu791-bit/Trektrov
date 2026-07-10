@@ -69,6 +69,50 @@
     </div>
   </div>
 
+  <div class="grid" style="margin-top: 18px;">
+    <div class="stat"><div class="num">{{ stats.avg_session_fmt }}</div><div class="label">Avg. time on site per visit</div></div>
+    <div class="stat"><div class="num">{{ stats.session_count }}</div><div class="label">Sessions with timing data</div></div>
+  </div>
+
+  <div class="card" style="margin-top: 18px;">
+    <h2>Avg. time per page</h2>
+    <table>
+      <tr><th>Path</th><th>Views</th><th>Avg. time</th></tr>
+      {% for row in stats.avg_durations %}
+      <tr><td>{{ row.path }}</td><td>{{ row.views }}</td><td>{{ row.avg_fmt }}</td></tr>
+      {% else %}<tr><td colspan="3" style="color: var(--muted);">No timing data yet</td></tr>{% endfor %}
+    </table>
+  </div>
+
+  <div class="two-col">
+    <div class="card">
+      <h2>Most viewed tours</h2>
+      <table>
+        <tr><th>Tour</th><th>City</th><th>Views</th></tr>
+        {% for a in stats.top_activities %}
+        <tr><td>{{ a.title or a.id }}</td><td>{{ a.city }}</td><td>{{ a.count }}</td></tr>
+        {% else %}<tr><td colspan="3" style="color: var(--muted);">No data yet</td></tr>{% endfor %}
+      </table>
+    </div>
+    <div class="card">
+      <h2>What travelers want</h2>
+      <p style="color: var(--muted); font-size: 13px; margin-top: 0;">By destination</p>
+      <table>
+        <tr><th>City</th><th>Interest</th></tr>
+        {% for city, c in stats.tour_city_pref %}
+        <tr><td>{{ city }}</td><td>{{ c }}</td></tr>
+        {% else %}<tr><td colspan="2" style="color: var(--muted);">No data yet</td></tr>{% endfor %}
+      </table>
+      <p style="color: var(--muted); font-size: 13px; margin-top: 14px;">By category</p>
+      <table>
+        <tr><th>Category</th><th>Interest</th></tr>
+        {% for cat, c in stats.tour_category_pref %}
+        <tr><td>{{ cat }}</td><td>{{ c }}</td></tr>
+        {% else %}<tr><td colspan="2" style="color: var(--muted);">No data yet</td></tr>{% endfor %}
+      </table>
+    </div>
+  </div>
+
   <div class="two-col">
     <div class="card">
       <h2>Countries</h2>
